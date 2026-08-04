@@ -474,7 +474,7 @@ else:
                                                 time.sleep(0.5)
                                                 st.rerun()
 
-                                if is_owner:
+                                if is_owner or ok_approve or fisc_turn or po_nao_turn:
                                     if st.button("🗑️ Excluir", key=f"dl_{rid}", use_container_width=True):
                                         st.session_state.confirm_action = ("delete", rid)
 
