@@ -246,11 +246,13 @@ st.markdown("""<style>
     .stSidebar {background-color:#143324;}
     h1,h2,h3,h4,h5,h6 {color:#f5f6fa!important;}
     .stMarkdown {color:#f5f6fa;}
-    div[data-testid="stForm"] {border:1px solid #2ecc71;border-radius:8px;padding:10px;}
-    .stButton>button {background-color:#2ecc71;color:white;border-radius:6px;border:none;padding:6px 16px;font-weight:bold;}
-    .stButton>button:hover {background-color:#27ae60;}
-    div[data-testid="stMetric"] {background-color:#143324;padding:12px;border-radius:8px;border:1px solid #2ecc71;}
-    .block-container {padding-top:1rem;}
+    div[data-testid="stForm"] {border:1px solid #1b5e20;border-radius:8px;padding:10px;}
+    .stButton>button {background-color:#1b5e20;color:white;border-radius:6px;border:none;padding:6px 16px;font-weight:bold;}
+    .stButton>button:hover {background-color:#2e7d32;}
+    div[data-testid="stMetric"] {background-color:#143324;padding:12px;border-radius:8px;border:1px solid #1b5e20;}
+    .block-container {padding-top:3rem;}
+    section[data-testid="stSidebar"] .stButton>button {background-color:#1b5e20;color:white;}
+    section[data-testid="stSidebar"] .stButton>button:hover {background-color:#2e7d32;}
 </style>""", unsafe_allow_html=True)
 
 init_session_state()
