@@ -112,7 +112,7 @@ def compress_and_encode_image(uploaded_file, max_size=(1024, 1024), quality=70):
         img.save(buffer, format="JPEG", quality=quality)
         data = base64.b64encode(buffer.getvalue()).decode()
         return f"data:image/jpeg;base64,{data}"
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -122,6 +122,8 @@ def apply_status_color(status_text):
     s = str(status_text).lower()
     if "conclu" in s:
         return "background-color: #27ae60; color: white;"
+    elif "aprovado final" in s:
+        return "background-color: #2ecc71; color: white;"
     elif "aprovad" in s and "aguardando" not in s:
         return "background-color: #2980b9; color: white;"
     elif "devolvid" in s or "retorno" in s:
@@ -156,6 +158,48 @@ def display_photos(foto_data):
                     st.image(foto, caption=f"Foto {i+1}", width=250)
                 elif foto.startswith("http"):
                     st.image(foto, caption=f"Foto {i+1}", width=250)
+
+
+def get_flow_for_om(om_name):
+    om_resolved = resolve_om(om_name)
+    return CONFIG_OMS.get(om_resolved, {}).get("flow", [])
+
+
+def can_user_approve(user_funcao, row_status, row_registro, flow):
+    if not flow or user_funcao not in flow:
+        return False
+    idx = flow.index(user_funcao)
+    if idx == 0:
+        return row_status in ("Em Aberto", "Rascunho") or (
+            "Devolvido" in row_status and idx == 0
+        )
+    else:
+        return row_status == f"Aguardando {user_funcao}"
+
+
+def get_next_role_in_flow(user_funcao, flow, row_registro=""):
+    if not flow or user_funcao not in flow:
+        return None, None
+    idx = flow.index(user_funcao)
+    if idx >= len(flow) - 1:
+        return "Aprovado Final", None
+    next_role = flow[idx + 1]
+    if next_role == "Aprovado Final":
+        return "Aprovado Final", None
+    return f"Aguardando {next_role}", next_role
+
+
+def get_return_options(user_funcao, flow):
+    if not flow or user_funcao not in flow:
+        return []
+    idx = flow.index(user_funcao)
+    options = []
+    for i in range(idx):
+        if i == 0:
+            options.append((flow[i], "Devolvido p/ Correção"))
+        else:
+            options.append((flow[i], f"Aguardando {flow[i]}"))
+    return options
 
 
 st.set_page_config(
@@ -277,7 +321,6 @@ else:
     user_identidade = user.get("Identidade", "")
 
     pode_criar = user_funcao in ROLES_PODEM_CRIAR_SOLICITACAO
-    tem_aprovacoes = user_funcao in ROLES_COM_APROVACOES
     is_admin = user_funcao == "Administrador da OM"
 
     with st.sidebar:
@@ -297,10 +340,9 @@ else:
                 st.session_state.editing_id = None
                 st.rerun()
 
-        if tem_aprovacoes:
-            if st.button("📊 Painel de Aprovações", use_container_width=True, key="btn_aprov"):
-                st.session_state.page = "aprovacoes"
-                st.rerun()
+        if st.button("📊 Painel de Aprovações", use_container_width=True, key="btn_aprov"):
+            st.session_state.page = "aprovacoes"
+            st.rerun()
 
         if is_admin:
             if st.button("👥 Gerenciar Usuários", use_container_width=True, key="btn_users"):
@@ -333,6 +375,7 @@ else:
                 row_id = row[0] if len(row) > 0 else ""
                 row_solicitante = row[3] if len(row) > 3 else ""
                 row_om = row[8] if len(row) > 8 else ""
+                row_status = row[2] if len(row) > 2 else ""
 
                 if row_id in hidden_ids:
                     continue
@@ -340,18 +383,15 @@ else:
                 is_mine = (row_solicitante == user_nome and row_om == user_om)
                 is_in_my_flow = False
 
-                if tem_aprovacoes:
-                    flow_steps = CONFIG_OMS.get(user_om, {}).get("flow", [])
-                    try:
-                        my_idx = flow_steps.index(user_funcao)
-                        for k in range(my_idx + 1, len(flow_steps)):
-                            role_check = flow_steps[k]
-                            registro = str(row[12] if len(row) > 12 else "")
-                            if f"APROVADO {role_check}" in registro or f"RETORNO {role_check}" in registro:
-                                is_in_my_flow = True
-                                break
-                    except (ValueError, IndexError):
-                        pass
+                flow = get_flow_for_om(row_om)
+                if flow and user_funcao in flow:
+                    idx = flow.index(user_funcao)
+                    if row_status == f"Aguardando {user_funcao}":
+                        is_in_my_flow = True
+                    elif idx == 0 and row_status in ("Em Aberto", "Rascunho"):
+                        is_in_my_flow = True
+                    elif idx == 0 and "Devolvido" in row_status:
+                        is_in_my_flow = True
 
                 if is_mine or is_in_my_flow:
                     my_requests.append(row)
@@ -368,6 +408,7 @@ else:
                     row_tipo = row[5] if len(row) > 5 else ""
                     row_desc = row[6] if len(row) > 6 else ""
                     row_urgencia = row[7] if len(row) > 7 else ""
+                    row_om = row[8] if len(row) > 8 else ""
                     row_foto = row[10] if len(row) > 10 else ""
                     row_registro = row[12] if len(row) > 12 else ""
 
@@ -388,6 +429,30 @@ else:
                         with col2:
                             is_owner = (row_solicitante == user_nome and row_om == user_om)
 
+                            flow = get_flow_for_om(row_om)
+                            user_can_approve = can_user_approve(user_funcao, row_status, row_registro, flow)
+                            next_status, next_role = get_next_role_in_flow(user_funcao, flow, row_registro)
+
+                            if user_can_approve and next_status:
+                                if next_status == "Aprovado Final":
+                                    if st.button("✅ Aprovar Final", key=f"aprovfinal_sol_{row_id}", use_container_width=True):
+                                        ok, msg = manager.update_status(row_id, "Aprovado Final", f"Aprovado por {user_nome}", user_nome)
+                                        if ok:
+                                            st.success(msg)
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+                                else:
+                                    if st.button(f"✅ Enviar p/ {next_role}", key=f"aprov_sol_{row_id}", use_container_width=True):
+                                        ok, msg = manager.update_status(row_id, next_status, f"Encaminhado para {next_role} por {user_nome}", user_nome, "APROVADO")
+                                        if ok:
+                                            st.success(msg)
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+
                             if is_owner and row_status in ("Em Aberto", "Rascunho"):
                                 if st.button("✏️ Editar", key=f"edit_sol_{row_id}", use_container_width=True):
                                     st.session_state.editing_id = row_id
@@ -404,31 +469,25 @@ else:
                                     else:
                                         st.error(msg)
 
-                            if is_owner and row_status == "Devolvido":
-                                if st.button("↩️ Devolver", key=f"return_sol_{row_id}", use_container_width=True):
-                                    st.session_state[f"return_sol_{row_id}"] = True
-
-                            if tem_aprovacoes:
-                                flow_steps = CONFIG_OMS.get(user_om, {}).get("flow", [])
-                                try:
-                                    my_idx = flow_steps.index(user_funcao)
-                                    next_role = flow_steps[my_idx + 1] if my_idx + 1 < len(flow_steps) else None
-                                    if next_role:
-                                        if st.button(f"✅ Aprovar p/ {next_role}", key=f"aprov_sol_{row_id}", use_container_width=True):
-                                            ok, msg = manager.update_status(
-                                                row_id,
-                                                f"Aprovado - {next_role}",
-                                                motivo=f"Aprovado por {user_nome}",
-                                                quem=user_nome,
-                                            )
+                            return_options = get_return_options(user_funcao, flow)
+                            if user_can_approve and return_options:
+                                with st.popover("↩️ Devolver"):
+                                    st.markdown("**Devolver para:**")
+                                    for role, label in return_options:
+                                        if st.button(label, key=f"ret_sol_{row_id}_{role}", use_container_width=True):
+                                            ok, msg = manager.update_status(row_id, f"Devolvido", f"Devolvido por {user_nome}", user_nome, "RETORNO")
                                             if ok:
                                                 st.success(msg)
                                                 time.sleep(0.5)
                                                 st.rerun()
                                             else:
                                                 st.error(msg)
-                                except (ValueError, IndexError):
-                                    pass
+
+                            if is_owner and "Devolvido" in row_status and not user_can_approve:
+                                if st.button("✏️ Editar", key=f"edit_dev_sol_{row_id}", use_container_width=True):
+                                    st.session_state.editing_id = row_id
+                                    st.session_state.page = "nova_solicitacao"
+                                    st.rerun()
 
                             if user_funcao == FUNCAO_SECAO_SERVICOS_GERAIS and row_status == STATUS_ANALISE_SERVICOS_GERAIS:
                                 c1, c2 = st.columns(2)
@@ -477,24 +536,6 @@ else:
                         if st.session_state.get(f"show_det_{row_id}", False):
                             show_detalhamento(row_id)
 
-                        if st.session_state.get(f"return_sol_{row_id}", False):
-                            with st.form(f"return_form_sol_{row_id}"):
-                                motivo = st.text_area("Motivo da devolução")
-                                if st.form_submit_button("Enviar Devolução"):
-                                    if motivo:
-                                        ok, msg = manager.update_status(
-                                            row_id, "Devolvido", motivo=motivo, quem=user_nome, prefix="RETORNO",
-                                        )
-                                        if ok:
-                                            st.success(msg)
-                                            st.session_state[f"return_sol_{row_id}"] = False
-                                            time.sleep(0.5)
-                                            st.rerun()
-                                        else:
-                                            st.error(msg)
-                                    else:
-                                        st.error("Informe o motivo.")
-
                         if row_registro:
                             st.markdown("---")
                             st.markdown("**Registro de Ações:**")
@@ -522,7 +563,7 @@ else:
 
             tipo_idx = 0
             if existing_data and existing_data[5] in TIPOS_ORIGINAIS:
-                tipo_idx = TIPOS_ORIGINAIS.index(existing_data[5])
+                tipo_idx = TIPOS_ORIGINAIS.index(existing_data[5]) + 1
             tipo = st.selectbox("Tipo*", ["Selecione..."] + TIPOS_ORIGINAIS, index=tipo_idx)
 
             urg_idx = 0
