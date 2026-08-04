@@ -27,23 +27,28 @@ SUPABASE_CONFIG_FILE = "supabase_config.json"
 def load_supabase_config():
     try:
         if hasattr(st, 'secrets'):
+            url = ""
+            key = ""
+            skey = ""
             if 'supabase' in st.secrets:
                 url = st.secrets.supabase.get("supabase_url", "")
                 key = st.secrets.supabase.get("supabase_key", "")
                 skey = st.secrets.supabase.get("supabase_service_key", "")
-                if url and key:
-                    return {
-                        "use_supabase": True,
-                        "supabase_url": url,
-                        "supabase_key": skey if skey else key,
-                        "supabase_service_key": skey if skey else key,
-                        "poll_interval_ms": 3000,
-                    }
-            st.info(f"Secrets disponiveis: {list(st.secrets.keys())}")
+            elif 'supabase_url' in st.secrets:
+                url = st.secrets.get("supabase_url", "")
+                key = st.secrets.get("supabase_key", "")
+                skey = st.secrets.get("supabase_service_key", "")
+            if url and key:
+                return {
+                    "use_supabase": True,
+                    "supabase_url": url,
+                    "supabase_key": skey if skey else key,
+                    "supabase_service_key": skey if skey else key,
+                    "poll_interval_ms": 3000,
+                }
     except Exception as e:
         st.info(f"Erro ao ler secrets: {e}")
     if not os.path.exists(SUPABASE_CONFIG_FILE):
-        st.warning(f"Arquivo {SUPABASE_CONFIG_FILE} nao encontrado e secrets nao configurados.")
         return {"use_supabase": False}
     try:
         with open(SUPABASE_CONFIG_FILE, "r", encoding="utf-8") as f:
