@@ -1,0 +1,37 @@
+{
+  "6° BI Amv": {
+    "roles": ["Selecione a Função...", "Enc Mat", "Cmt SU", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Enc Mat", "Cmt SU", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Enc Mat", "Cmt SU", "Fisc Adm OM/S4", "Fisc Adm Base", "Aprovado Final"]
+  },
+  "12ª Cia Com Amv": {
+    "roles": ["Selecione a Função...", "Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Aprovado Final"]
+  },
+  "Cia C": {
+    "roles": ["Selecione a Função...", "Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Aprovado Final"]
+  },
+  "2ª Cia Prec": {
+    "roles": ["Selecione a Função...", "Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Enc Mat", "Fisc Adm OM/S4", "Fisc Adm Base", "Aprovado Final"]
+  },
+  "12° Pel PE Amv": {
+    "roles": ["Selecione a Função...", "Enc Mat", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Enc Mat", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Enc Mat", "Fisc Adm Base", "Aprovado Final"]
+  },
+  "QG": {
+    "roles": ["Selecione a Função...", "Aj G", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Aj G", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Aj G", "Fisc Adm Base", "Aprovado Final"]
+  },
+  "Base Administrativa": {
+    "roles": ["Selecione a Função...", "Almox", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "unique_roles": ["Almox", "Fisc Adm Base", "Chefe da Seção de Infraestrutura", "Seção de Serviços Gerais", "Administrador da OM"],
+    "flow": ["Almox", "Fisc Adm Base", "Aprovado Final"]
+  }
+}

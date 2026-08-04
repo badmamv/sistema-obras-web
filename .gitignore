@@ -1,0 +1,9 @@
+backup_sistema_obras/
+sinapi_insumos_sp_202603.json
+sinapi_custo_ref_composicoes_sp_202603.json
+data_entrada.json
+data_usuarios_cadastrados.json
+__pycache__/
+*.pyc
+supabase_config.json
+image copy.png
