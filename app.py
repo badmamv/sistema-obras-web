@@ -25,6 +25,17 @@ SUPABASE_CONFIG_FILE = "supabase_config.json"
 
 
 def load_supabase_config():
+    try:
+        if hasattr(st, 'secrets') and 'supabase' in st.secrets:
+            return {
+                "use_supabase": True,
+                "supabase_url": st.secrets.supabase.supabase_url,
+                "supabase_key": st.secrets.supabase.supabase_key,
+                "supabase_service_key": st.secrets.supabase.get("supabase_service_key", st.secrets.supabase.supabase_key),
+                "poll_interval_ms": 3000,
+            }
+    except Exception:
+        pass
     if not os.path.exists(SUPABASE_CONFIG_FILE):
         return {"use_supabase": False}
     try:
@@ -172,17 +183,17 @@ if not st.session_state.logged_in:
 
     with tab_cadastro:
         st.markdown("### 📝 Cadastrar Novo Usuario")
+
+        om_options = ["Selecione a OM..."] + list(CONFIG_OMS.keys())
+        om_cad = st.selectbox("Organizacao Militar", om_options, key="cad_om")
+
+        funcao_options = ["Selecione a Funcao..."]
+        if om_cad and om_cad != "Selecione a OM..." and om_cad in CONFIG_OMS:
+            funcao_options = CONFIG_OMS[om_cad].get("roles", ["Selecione a Funcao..."])
+
+        funcao_cad = st.selectbox("Funcao", funcao_options, key="cad_funcao")
+
         with st.form("cadastro_form"):
-            om_options = ["Selecione a OM..."] + list(CONFIG_OMS.keys())
-            om = st.selectbox("Organizacao Militar", om_options)
-
-            funcao = "Selecione a Funcao..."
-            if om and om != "Selecione a OM..." and om in CONFIG_OMS:
-                roles = CONFIG_OMS[om].get("roles", [])
-                funcao = st.selectbox("Funcao", roles)
-            else:
-                st.selectbox("Funcao", ["Selecione a OM primeiro..."], disabled=True)
-
             nome = st.text_input("Nome completo")
             cad_identidade = st.text_input("Identidade (matricula)")
             cad_senha = st.text_input("Senha", type="password")
@@ -191,11 +202,11 @@ if not st.session_state.logged_in:
             cad_submitted = st.form_submit_button("Cadastrar", use_container_width=True)
 
             if cad_submitted:
-                if not all([om, funcao, nome, cad_identidade, cad_senha]):
+                if not all([om_cad, funcao_cad, nome, cad_identidade, cad_senha]):
                     st.error("Preencha todos os campos.")
-                elif om == "Selecione a OM...":
+                elif om_cad == "Selecione a OM...":
                     st.error("Selecione uma OM.")
-                elif funcao == "Selecione a Funcao...":
+                elif funcao_cad == "Selecione a Funcao...":
                     st.error("Selecione uma funcao.")
                 elif cad_senha != cad_senha2:
                     st.error("As senhas nao conferem.")
@@ -204,8 +215,8 @@ if not st.session_state.logged_in:
                 elif not manager or not manager.is_connected:
                     st.error("Sistema offline. Nao e possivel cadastrar.")
                 else:
-                    om_resolved = resolve_om(om)
-                    funcao_resolved = resolve_role(funcao)
+                    om_resolved = resolve_om(om_cad)
+                    funcao_resolved = resolve_role(funcao_cad)
                     ok, msg = manager.add_user(
                         om_resolved, nome, cad_identidade, funcao_resolved, cad_senha
                     )
@@ -680,15 +691,17 @@ else:
 
         st.markdown("---")
         st.markdown("### ➕ Cadastrar Novo Usuario")
+
+        om_options_admin = ["Selecione a OM..."] + list(CONFIG_OMS.keys())
+        new_om = st.selectbox("OM", om_options_admin, key="admin_cad_om")
+
+        new_funcao_options = ["Selecione a Funcao..."]
+        if new_om and new_om != "Selecione a OM..." and new_om in CONFIG_OMS:
+            new_funcao_options = CONFIG_OMS[new_om].get("roles", ["Selecione a Funcao..."])
+
+        new_funcao = st.selectbox("Funcao", new_funcao_options, key="admin_cad_funcao")
+
         with st.form("admin_cadastro_form"):
-            om_options = ["Selecione a OM..."] + list(CONFIG_OMS.keys())
-            new_om = st.selectbox("OM", om_options)
-
-            new_funcao = "Selecione a Funcao..."
-            if new_om and new_om != "Selecione a OM..." and new_om in CONFIG_OMS:
-                roles = CONFIG_OMS[new_om].get("roles", [])
-                new_funcao = st.selectbox("Funcao", roles)
-
             new_nome = st.text_input("Nome completo")
             new_ident = st.text_input("Identidade (matricula)")
             new_senha = st.text_input("Senha", type="password")

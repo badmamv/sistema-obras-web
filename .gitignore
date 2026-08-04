@@ -5,5 +5,5 @@ data_entrada.json
 data_usuarios_cadastrados.json
 __pycache__/
 *.pyc
-supabase_config.json
 image copy.png
+supabase_config.json
