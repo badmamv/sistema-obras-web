@@ -26,17 +26,24 @@ SUPABASE_CONFIG_FILE = "supabase_config.json"
 
 def load_supabase_config():
     try:
-        if hasattr(st, 'secrets') and 'supabase' in st.secrets:
-            return {
-                "use_supabase": True,
-                "supabase_url": st.secrets.supabase.supabase_url,
-                "supabase_key": st.secrets.supabase.supabase_key,
-                "supabase_service_key": st.secrets.supabase.get("supabase_service_key", st.secrets.supabase.supabase_key),
-                "poll_interval_ms": 3000,
-            }
-    except Exception:
-        pass
+        if hasattr(st, 'secrets'):
+            if 'supabase' in st.secrets:
+                url = st.secrets.supabase.get("supabase_url", "")
+                key = st.secrets.supabase.get("supabase_key", "")
+                skey = st.secrets.supabase.get("supabase_service_key", "")
+                if url and key:
+                    return {
+                        "use_supabase": True,
+                        "supabase_url": url,
+                        "supabase_key": skey if skey else key,
+                        "supabase_service_key": skey if skey else key,
+                        "poll_interval_ms": 3000,
+                    }
+            st.info(f"Secrets disponiveis: {list(st.secrets.keys())}")
+    except Exception as e:
+        st.info(f"Erro ao ler secrets: {e}")
     if not os.path.exists(SUPABASE_CONFIG_FILE):
+        st.warning(f"Arquivo {SUPABASE_CONFIG_FILE} nao encontrado e secrets nao configurados.")
         return {"use_supabase": False}
     try:
         with open(SUPABASE_CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -47,20 +54,23 @@ def load_supabase_config():
 
 def create_manager():
     config = load_supabase_config()
-    if config.get("use_supabase", False):
-        try:
-            mgr = SupabaseManager(
-                supabase_url=config.get("supabase_url", ""),
-                supabase_key=config.get("supabase_service_key", config.get("supabase_key", "")),
-                poll_interval_ms=config.get("poll_interval_ms", 3000),
-            )
-            success, msg = mgr.connect()
-            if success:
-                return mgr
-            else:
-                st.warning(f"Falha Supabase: {msg}. Usando modo offline.")
-        except Exception as e:
-            st.warning(f"Erro Supabase: {e}. Usando modo offline.")
+    if not config.get("use_supabase", False):
+        st.warning("Supabase nao configurado. Verifique os Secrets no Streamlit Cloud.")
+        return None
+    try:
+        from supabase_manager import SupabaseManager
+        mgr = SupabaseManager(
+            supabase_url=config.get("supabase_url", ""),
+            supabase_key=config.get("supabase_service_key", config.get("supabase_key", "")),
+            poll_interval_ms=config.get("poll_interval_ms", 3000),
+        )
+        success, msg = mgr.connect()
+        if success:
+            return mgr
+        else:
+            st.warning(f"Falha Supabase: {msg}")
+    except Exception as e:
+        st.warning(f"Erro Supabase: {e}")
     return None
 
 
