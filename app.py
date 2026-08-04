@@ -68,9 +68,11 @@ def create_manager():
         if success:
             return mgr
         else:
-            st.warning(f"Falha Supabase: {msg}")
+            st.error(f"Erro Supabase: {msg}")
+            if mgr.last_error:
+                st.caption(f"Detalhe: {mgr.last_error}")
     except Exception as e:
-        st.warning(f"Erro Supabase: {e}")
+        st.error(f"Erro ao criar SupabaseManager: {e}")
     return None
 
 

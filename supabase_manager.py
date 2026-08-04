@@ -89,13 +89,19 @@ class SupabaseManager:
         self._supabase_url = supabase_url
         self._supabase_key = supabase_key
         self._poll_interval_ms = poll_interval_ms
+        self._error_msg = ""
 
         if supabase_url and supabase_key and create_client is not None:
             try:
                 self._client = create_client(supabase_url, supabase_key)
                 self._connected = True
             except Exception as e:
-                print(f"[SupabaseManager] Erro ao conectar: {e}")
+                self._error_msg = f"Erro ao criar cliente: {e}"
+                print(f"[SupabaseManager] {self._error_msg}")
+        elif not create_client:
+            self._error_msg = "Pacote 'supabase' nao esta instalado."
+        elif not supabase_url or not supabase_key:
+            self._error_msg = "URL ou chave do Supabase vazias."
 
     @property
     def client(self) -> Client | None:
@@ -105,11 +111,16 @@ class SupabaseManager:
     def is_connected(self) -> bool:
         return self._connected and self._client is not None
 
+    @property
+    def last_error(self) -> str:
+        return self._error_msg
+
     def connect(self):
         if self.is_connected:
             return True, "Conexao Supabase Ativa."
         if not create_client:
-            return False, "Pacote 'supabase' nao instalado. Execute: pip install supabase"
+            msg = "Pacote 'supabase' nao instalado. Execute: pip install supabase"
+            return False, msg
         if not self._supabase_url or not self._supabase_key:
             return False, "URL ou chave do Supabase nao configurados."
         try:
@@ -118,6 +129,7 @@ class SupabaseManager:
             return True, "Conectado ao Supabase com sucesso."
         except Exception as e:
             self._connected = False
+            self._error_msg = str(e)
             return False, f"Erro ao conectar ao Supabase: {e}"
 
     def _table(self, name: str):
