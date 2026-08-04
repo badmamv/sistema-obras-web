@@ -2,11 +2,11 @@ import streamlit as st
 import json
 import os
 import re
-import hashlib
 import base64
 import datetime
 import time
 import io
+from PIL import Image
 
 from constants import (
     CONFIG_OMS, SheetColumns, HEADER_DEMANDA, resolve_om, resolve_role,
@@ -16,12 +16,15 @@ from constants import (
     STATUS_RECEBIDO_INFRAESTRUTURA, TAG_PO_EXECUTA, TAG_PO_NAO_EXECUTA,
     STATUS_EM_EXECUCAO_PO, STATUS_CONCLUIDO_PO, STATUS_CONCLUIDO_INFRA,
     status_para_bloco_aprovacao, status_alvos_bloco_aprovacao,
-    extrair_parecer_po, descricao_original, gerar_hash_senha, verificar_senha,
+    extrair_parecer_po, descricao_original, verificar_senha,
     SINAPI_INSUMOS_FILE, SINAPI_COMPOSICOES_FILE,
 )
-from supabase_manager import SupabaseManager, HEADER_DEMANDA as SB_HEADER
+from supabase_manager import SupabaseManager
 
 SUPABASE_CONFIG_FILE = "supabase_config.json"
+
+TIPOS_ORIGINAIS = ["Manutenção", "Reparo", "Obra"]
+URGENCIAS_ORIGINAIS = ["Baixa", "Média", "Alta"]
 
 
 def load_supabase_config():
@@ -46,8 +49,8 @@ def load_supabase_config():
                     "supabase_service_key": skey if skey else key,
                     "poll_interval_ms": 3000,
                 }
-    except Exception as e:
-        st.info(f"Erro ao ler secrets: {e}")
+    except Exception:
+        pass
     if not os.path.exists(SUPABASE_CONFIG_FILE):
         return {"use_supabase": False}
     try:
@@ -60,10 +63,8 @@ def load_supabase_config():
 def create_manager():
     config = load_supabase_config()
     if not config.get("use_supabase", False):
-        st.warning("Supabase nao configurado. Verifique os Secrets no Streamlit Cloud.")
         return None
     try:
-        from supabase_manager import SupabaseManager
         mgr = SupabaseManager(
             supabase_url=config.get("supabase_url", ""),
             supabase_key=config.get("supabase_service_key", config.get("supabase_key", "")),
@@ -74,8 +75,6 @@ def create_manager():
             return mgr
         else:
             st.error(f"Erro Supabase: {msg}")
-            if mgr.last_error:
-                st.caption(f"Detalhe: {mgr.last_error}")
     except Exception as e:
         st.error(f"Erro ao criar SupabaseManager: {e}")
     return None
@@ -101,6 +100,20 @@ def init_session_state():
 
 def generate_id():
     return datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")[:14]
+
+
+def compress_and_encode_image(uploaded_file, max_size=(1024, 1024), quality=70):
+    try:
+        img = Image.open(uploaded_file)
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=quality)
+        data = base64.b64encode(buffer.getvalue()).decode()
+        return f"data:image/jpeg;base64,{data}"
+    except Exception as e:
+        return None
 
 
 def apply_status_color(status_text):
@@ -129,8 +142,24 @@ def format_status_html(status_text):
     return status_text
 
 
+def display_photos(foto_data):
+    if not foto_data:
+        return
+    fotos = str(foto_data).split('|')
+    if len(fotos) == 1 and fotos[0].startswith("http"):
+        st.image(fotos[0], width=300)
+    elif fotos:
+        cols = st.columns(min(len(fotos), 3))
+        for i, foto in enumerate(fotos[:3]):
+            with cols[i]:
+                if foto.startswith("data:image"):
+                    st.image(foto, caption=f"Foto {i+1}", width=250)
+                elif foto.startswith("http"):
+                    st.image(foto, caption=f"Foto {i+1}", width=250)
+
+
 st.set_page_config(
-    page_title="Sistema de Solicitacao de Servicos",
+    page_title="Sistema de Solicitação de Serviços",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -166,7 +195,7 @@ if not st.session_state.logged_in:
     with tab_login:
         st.markdown("### 🔐 Acessar Sistema")
         with st.form("login_form"):
-            identidade = st.text_input("Identidade (matricula)")
+            identidade = st.text_input("Identidade (matrícula)")
             senha = st.text_input("Senha", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True)
 
@@ -174,7 +203,7 @@ if not st.session_state.logged_in:
                 if not identidade or not senha:
                     st.error("Preencha identidade e senha.")
                 elif not manager or not manager.is_connected:
-                    st.error("Sistema offline. Nao e possivel fazer login.")
+                    st.error("Sistema offline. Não é possível fazer login.")
                 else:
                     users = manager.get_users()
                     identidade_clean = str(identidade).strip().lstrip("0")
@@ -186,9 +215,9 @@ if not st.session_state.logged_in:
                             break
 
                     if not found_user:
-                        st.error("Usuario nao encontrado.")
+                        st.error("Usuário não encontrado.")
                     elif found_user.get("Status", "") == "Inativo":
-                        st.error("Usuario inativo. Contate o administrador.")
+                        st.error("Usuário inativo. Contate o administrador.")
                     else:
                         stored = found_user.get("Senha", "")
                         if verificar_senha(senha, stored):
@@ -199,20 +228,20 @@ if not st.session_state.logged_in:
                             st.error("Senha incorreta.")
 
     with tab_cadastro:
-        st.markdown("### 📝 Cadastrar Novo Usuario")
+        st.markdown("### 📝 Cadastrar Novo Usuário")
 
         om_options = ["Selecione a OM..."] + list(CONFIG_OMS.keys())
-        om_cad = st.selectbox("Organizacao Militar", om_options, key="cad_om")
+        om_cad = st.selectbox("Organização Militar", om_options, key="cad_om")
 
-        funcao_options = ["Selecione a Funcao..."]
+        funcao_options = ["Selecione a Função..."]
         if om_cad and om_cad != "Selecione a OM..." and om_cad in CONFIG_OMS:
-            funcao_options = CONFIG_OMS[om_cad].get("roles", ["Selecione a Funcao..."])
+            funcao_options = CONFIG_OMS[om_cad].get("roles", ["Selecione a Função..."])
 
-        funcao_cad = st.selectbox("Funcao", funcao_options, key="cad_funcao")
+        funcao_cad = st.selectbox("Função", funcao_options, key="cad_funcao")
 
         with st.form("cadastro_form"):
             nome = st.text_input("Nome completo")
-            cad_identidade = st.text_input("Identidade (matricula)")
+            cad_identidade = st.text_input("Identidade (matrícula)")
             cad_senha = st.text_input("Senha", type="password")
             cad_senha2 = st.text_input("Confirmar senha", type="password")
 
@@ -223,19 +252,17 @@ if not st.session_state.logged_in:
                     st.error("Preencha todos os campos.")
                 elif om_cad == "Selecione a OM...":
                     st.error("Selecione uma OM.")
-                elif funcao_cad == "Selecione a Funcao...":
-                    st.error("Selecione uma funcao.")
+                elif funcao_cad == "Selecione a Função...":
+                    st.error("Selecione uma função.")
                 elif cad_senha != cad_senha2:
-                    st.error("As senhas nao conferem.")
+                    st.error("As senhas não conferem.")
                 elif len(cad_senha) < 6:
                     st.error("A senha deve ter pelo menos 6 caracteres.")
                 elif not manager or not manager.is_connected:
-                    st.error("Sistema offline. Nao e possivel cadastrar.")
+                    st.error("Sistema offline. Não é possível cadastrar.")
                 else:
-                    om_resolved = resolve_om(om_cad)
-                    funcao_resolved = resolve_role(funcao_cad)
                     ok, msg = manager.add_user(
-                        om_resolved, nome, cad_identidade, funcao_resolved, cad_senha
+                        resolve_om(om_cad), nome, cad_identidade, resolve_role(funcao_cad), cad_senha
                     )
                     if ok:
                         st.success(msg)
@@ -255,51 +282,49 @@ else:
 
     with st.sidebar:
         st.markdown(f"### 👤 {user_nome}")
-        st.caption(f"**Funcao:** {user_funcao}")
+        st.caption(f"**Função:** {user_funcao}")
         st.caption(f"**OM:** {user_om}")
         st.markdown("---")
 
-        if st.button("🏠 Inicio", use_container_width=True):
+        if st.button("🏠 Início", use_container_width=True, key="btn_inicio"):
             st.session_state.page = "solicitacoes"
             st.session_state.editing_id = None
             st.rerun()
 
         if pode_criar:
-            if st.button("➕ Nova Solicitacao", use_container_width=True):
+            if st.button("➕ Nova Solicitação", use_container_width=True, key="btn_nova"):
                 st.session_state.page = "nova_solicitacao"
                 st.session_state.editing_id = None
                 st.rerun()
 
         if tem_aprovacoes:
-            if st.button("📊 Painel de Aprovacoes", use_container_width=True):
+            if st.button("📊 Painel de Aprovações", use_container_width=True, key="btn_aprov"):
                 st.session_state.page = "aprovacoes"
                 st.rerun()
 
         if is_admin:
-            if st.button("👥 Gerenciar Usuarios", use_container_width=True):
+            if st.button("👥 Gerenciar Usuários", use_container_width=True, key="btn_users"):
                 st.session_state.page = "usuarios"
                 st.rerun()
 
         st.markdown("---")
-        if st.button("🚪 Sair", use_container_width=True):
+        if st.button("🚪 Sair", use_container_width=True, key="btn_sair"):
             st.session_state.logged_in = False
             st.session_state.user_data = None
             st.rerun()
 
     if st.session_state.page == "solicitacoes":
-        st.markdown("## 📋 Minhas Solicitacoes")
+        st.markdown("## 📋 Minhas Solicitações")
 
         if not manager or not manager.is_connected:
-            st.error("Sistema offline. Verifique a conexao com o Supabase.")
+            st.error("Sistema offline. Verifique a conexão com o Supabase.")
             st.stop()
 
         data = manager.get_data_from_sheet("Demandas")
         if len(data) <= 1:
-            st.info("Nenhuma solicitacao encontrada.")
+            st.info("Nenhuma solicitação encontrada.")
         else:
-            header = data[0]
             rows = data[1:]
-
             hidden_ids_str = user.get("HiddenIDs", "") or ""
             hidden_ids = [h.strip() for h in hidden_ids_str.split(",") if h.strip()]
 
@@ -308,7 +333,6 @@ else:
                 row_id = row[0] if len(row) > 0 else ""
                 row_solicitante = row[3] if len(row) > 3 else ""
                 row_om = row[8] if len(row) > 8 else ""
-                row_status = row[2] if len(row) > 2 else ""
 
                 if row_id in hidden_ids:
                     continue
@@ -322,10 +346,8 @@ else:
                         my_idx = flow_steps.index(user_funcao)
                         for k in range(my_idx + 1, len(flow_steps)):
                             role_check = flow_steps[k]
-                            if f"APROVADO {role_check}" in str(row[12] if len(row) > 12 else ""):
-                                is_in_my_flow = True
-                                break
-                            if f"RETORNO {role_check}" in str(row[12] if len(row) > 12 else ""):
+                            registro = str(row[12] if len(row) > 12 else "")
+                            if f"APROVADO {role_check}" in registro or f"RETORNO {role_check}" in registro:
                                 is_in_my_flow = True
                                 break
                     except (ValueError, IndexError):
@@ -335,7 +357,7 @@ else:
                     my_requests.append(row)
 
             if not my_requests:
-                st.info("Nenhuma solicitacao para exibir.")
+                st.info("Nenhuma solicitação para exibir.")
             else:
                 for idx, row in enumerate(my_requests):
                     row_id = row[0] if len(row) > 0 else ""
@@ -346,6 +368,7 @@ else:
                     row_tipo = row[5] if len(row) > 5 else ""
                     row_desc = row[6] if len(row) > 6 else ""
                     row_urgencia = row[7] if len(row) > 7 else ""
+                    row_foto = row[10] if len(row) > 10 else ""
                     row_registro = row[12] if len(row) > 12 else ""
 
                     status_html = format_status_html(row_status)
@@ -358,19 +381,21 @@ else:
                             st.markdown(f"**Solicitante:** {row_solicitante}")
                             st.markdown(f"**Local:** {row_local}")
                             st.markdown(f"**Tipo:** {row_tipo}")
-                            st.markdown(f"**Urgencia:** {row_urgencia}")
-                            st.markdown(f"**Descricao:** {row_desc}")
+                            st.markdown(f"**Urgência:** {row_urgencia}")
+                            st.markdown(f"**Descrição:** {row_desc}")
+                            if row_foto:
+                                display_photos(row_foto)
                         with col2:
                             is_owner = (row_solicitante == user_nome and row_om == user_om)
 
                             if is_owner and row_status in ("Em Aberto", "Rascunho"):
-                                if st.button("✏️ Editar", key=f"edit_{row_id}", use_container_width=True):
+                                if st.button("✏️ Editar", key=f"edit_sol_{row_id}", use_container_width=True):
                                     st.session_state.editing_id = row_id
                                     st.session_state.page = "nova_solicitacao"
                                     st.rerun()
 
                             if is_owner and row_status in ("Em Aberto", "Rascunho"):
-                                if st.button("🗑️ Excluir", key=f"del_{row_id}", use_container_width=True):
+                                if st.button("🗑️ Excluir", key=f"del_sol_{row_id}", use_container_width=True):
                                     ok, msg = manager.delete_solicitacao(row_id)
                                     if ok:
                                         st.success(msg)
@@ -380,8 +405,8 @@ else:
                                         st.error(msg)
 
                             if is_owner and row_status == "Devolvido":
-                                if st.button("↩️ Devolver", key=f"return_{row_id}", use_container_width=True):
-                                    st.session_state[f"return_{row_id}"] = True
+                                if st.button("↩️ Devolver", key=f"return_sol_{row_id}", use_container_width=True):
+                                    st.session_state[f"return_sol_{row_id}"] = True
 
                             if tem_aprovacoes:
                                 flow_steps = CONFIG_OMS.get(user_om, {}).get("flow", [])
@@ -389,7 +414,7 @@ else:
                                     my_idx = flow_steps.index(user_funcao)
                                     next_role = flow_steps[my_idx + 1] if my_idx + 1 < len(flow_steps) else None
                                     if next_role:
-                                        if st.button(f"✅ Aprovar p/ {next_role}", key=f"aprov_{row_id}", use_container_width=True):
+                                        if st.button(f"✅ Aprovar p/ {next_role}", key=f"aprov_sol_{row_id}", use_container_width=True):
                                             ok, msg = manager.update_status(
                                                 row_id,
                                                 f"Aprovado - {next_role}",
@@ -408,10 +433,8 @@ else:
                             if user_funcao == FUNCAO_SECAO_SERVICOS_GERAIS and row_status == STATUS_ANALISE_SERVICOS_GERAIS:
                                 c1, c2 = st.columns(2)
                                 with c1:
-                                    if st.button("🔨 Executar", key=f"exec_{row_id}", use_container_width=True):
-                                        ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(
-                                            row_id, TAG_PO_EXECUTA, user_nome
-                                        )
+                                    if st.button("🔨 Executar", key=f"exec_sol_{row_id}", use_container_width=True):
+                                        ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(row_id, TAG_PO_EXECUTA, user_nome)
                                         if ok:
                                             st.success(msg)
                                             time.sleep(0.5)
@@ -419,10 +442,8 @@ else:
                                         else:
                                             st.error(msg)
                                 with c2:
-                                    if st.button("🚫 Nao Executar", key=f"nao_{row_id}", use_container_width=True):
-                                        ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(
-                                            row_id, TAG_PO_NAO_EXECUTA, user_nome
-                                        )
+                                    if st.button("🚫 Não Executar", key=f"nao_sol_{row_id}", use_container_width=True):
+                                        ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(row_id, TAG_PO_NAO_EXECUTA, user_nome)
                                         if ok:
                                             st.success(msg)
                                             time.sleep(0.5)
@@ -431,7 +452,7 @@ else:
                                             st.error(msg)
 
                             if user_funcao in (FUNCAO_FISC_ADM_BASE, FUNCAO_SECAO_SERVICOS_GERAIS) and row_status == STATUS_EM_EXECUCAO_PO:
-                                if st.button("✅ Concluir (PO)", key=f"conclpo_{row_id}", use_container_width=True):
+                                if st.button("✅ Concluir (PO)", key=f"conclpo_sol_{row_id}", use_container_width=True):
                                     ok, msg = manager.concluir_servico_po(row_id, user_nome)
                                     if ok:
                                         st.success(msg)
@@ -440,8 +461,8 @@ else:
                                     else:
                                         st.error(msg)
 
-                            if user_funcao == "Chefe da Secao de Infraestrutura" and row_status == STATUS_EM_EXECUCAO_PO:
-                                if st.button("✅ Concluir (Infra)", key=f"conclinfra_{row_id}", use_container_width=True):
+                            if user_funcao == "Chefe da Seção de Infraestrutura" and row_status == STATUS_EM_EXECUCAO_PO:
+                                if st.button("✅ Concluir (Infra)", key=f"conclinfra_sol_{row_id}", use_container_width=True):
                                     ok, msg = manager.concluir_servico_infraestrutura(row_id, user_nome)
                                     if ok:
                                         st.success(msg)
@@ -450,27 +471,23 @@ else:
                                     else:
                                         st.error(msg)
 
-                            if st.button("📋 Detalhar", key=f"det_{row_id}", use_container_width=True):
+                            if st.button("📋 Detalhar", key=f"det_sol_{row_id}", use_container_width=True):
                                 st.session_state[f"show_det_{row_id}"] = True
 
                         if st.session_state.get(f"show_det_{row_id}", False):
                             show_detalhamento(row_id)
 
-                        if st.session_state.get(f"return_{row_id}", False):
-                            with st.form(f"return_form_{row_id}"):
-                                motivo = st.text_area("Motivo da devolucao")
-                                if st.form_submit_button("Enviar Devolucao"):
+                        if st.session_state.get(f"return_sol_{row_id}", False):
+                            with st.form(f"return_form_sol_{row_id}"):
+                                motivo = st.text_area("Motivo da devolução")
+                                if st.form_submit_button("Enviar Devolução"):
                                     if motivo:
                                         ok, msg = manager.update_status(
-                                            row_id,
-                                            "Devolvido",
-                                            motivo=motivo,
-                                            quem=user_nome,
-                                            prefix="RETORNO",
+                                            row_id, "Devolvido", motivo=motivo, quem=user_nome, prefix="RETORNO",
                                         )
                                         if ok:
                                             st.success(msg)
-                                            st.session_state[f"return_{row_id}"] = False
+                                            st.session_state[f"return_sol_{row_id}"] = False
                                             time.sleep(0.5)
                                             st.rerun()
                                         else:
@@ -480,7 +497,7 @@ else:
 
                         if row_registro:
                             st.markdown("---")
-                            st.markdown("**Registro de Acoes:**")
+                            st.markdown("**Registro de Ações:**")
                             for line in str(row_registro).split("\n"):
                                 if line.strip():
                                     st.text(line.strip())
@@ -488,9 +505,9 @@ else:
     elif st.session_state.page == "nova_solicitacao":
         editing_id = st.session_state.editing_id
         if editing_id:
-            st.markdown(f"## ✏️ Editar Solicitacao: {editing_id}")
+            st.markdown(f"## ✏️ Editar Solicitação: {editing_id}")
         else:
-            st.markdown("## ➕ Nova Solicitacao")
+            st.markdown("## ➕ Nova Solicitação")
 
         data = manager.get_data_from_sheet("Demandas") if manager and manager.is_connected else []
         existing_data = None
@@ -501,40 +518,60 @@ else:
                     break
 
         with st.form("solicitacao_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                local = st.text_input("Local*", value=existing_data[4] if existing_data else "")
-                tipo = st.selectbox("Tipo*", [
-                    "Selecione...", "Material", "Servico", "Equipamento", "Manutencao", "Infraestrutura", "Outros"
-                ], index=max(0, (
-                    ["Selecione...", "Material", "Servico", "Equipamento", "Manutencao", "Infraestrutura", "Outros"].index(existing_data[5])
-                    if existing_data and existing_data[5] in ["Material", "Servico", "Equipamento", "Manutencao", "Infraestrutura", "Outros"]
-                    else 0
-                )))
-            with col2:
-                urgencia = st.selectbox("Urgencia*", [
-                    "Selecione...", "Baixa", "Media", "Alta", "Critica"
-                ], index=max(0, (
-                    ["Selecione...", "Baixa", "Media", "Alta", "Critica"].index(existing_data[7])
-                    if existing_data and existing_data[7] in ["Baixa", "Media", "Alta", "Critica"]
-                    else 0
-                )))
+            local = st.text_input("Local*", value=existing_data[4] if existing_data else "")
 
-            descricao = st.text_area("Descricao*", value=existing_data[6] if existing_data else "", height=120)
+            tipo_idx = 0
+            if existing_data and existing_data[5] in TIPOS_ORIGINAIS:
+                tipo_idx = TIPOS_ORIGINAIS.index(existing_data[5])
+            tipo = st.selectbox("Tipo*", ["Selecione..."] + TIPOS_ORIGINAIS, index=tipo_idx)
 
-            submitted = st.form_submit_button("Enviar Solicitacao" if not editing_id else "Atualizar", use_container_width=True)
+            urg_idx = 0
+            if existing_data and existing_data[7] in URGENCIAS_ORIGINAIS:
+                urg_idx = URGENCIAS_ORIGINAIS.index(existing_data[7]) + 1
+            urgencia = st.selectbox("Urgência*", ["Selecione..."] + URGENCIAS_ORIGINAIS, index=urg_idx)
+
+            descricao = st.text_area("Descrição*", value=existing_data[6] if existing_data else "", height=120)
+
+            fotos_upload = st.file_uploader(
+                "📎 Anexar Fotos (Máx 3 - 1MB cada)",
+                type=["png", "jpg", "jpeg"],
+                accept_multiple_files=True,
+                key="fotos_upload",
+            )
+
+            if fotos_upload and len(fotos_upload) > 3:
+                st.warning("Máximo de 3 fotos. Apenas as 3 primeiras serão utilizadas.")
+                fotos_upload = fotos_upload[:3]
+
+            submitted = st.form_submit_button("Enviar Solicitação" if not editing_id else "Atualizar", use_container_width=True)
 
             if submitted:
                 if not local or tipo == "Selecione..." or urgencia == "Selecione..." or not descricao:
-                    st.error("Preencha todos os campos obrigatorios (*).")
+                    st.error("Preencha todos os campos obrigatórios (*).")
                 else:
+                    fotos_base64 = []
+                    if fotos_upload:
+                        for foto in fotos_upload[:3]:
+                            encoded = compress_and_encode_image(foto)
+                            if encoded:
+                                fotos_base64.append(encoded)
+                            else:
+                                st.warning(f"Não foi possível processar a foto: {foto.name}")
+
+                    foto_final = "|".join(fotos_base64) if fotos_base64 else ""
+
+                    if editing_id and existing_data:
+                        foto_existente = existing_data[10] if len(existing_data) > 10 else ""
+                        if not fotos_base64 and foto_existente:
+                            foto_final = foto_existente
+
                     now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
                     if editing_id:
-                        dados = [now, "Em Aberto", user_nome, local, tipo, descricao, urgencia, user_om, ""]
+                        dados = [now, "Em Aberto", user_nome, local, tipo, descricao, urgencia, user_om, foto_final]
                         ok, msg = manager.update_solicitacao(editing_id, dados)
                     else:
                         new_id = generate_id()
-                        data_list = [new_id, now, "Em Aberto", user_nome, local, tipo, descricao, urgencia, user_om, ""]
+                        data_list = [new_id, now, "Em Aberto", user_nome, local, tipo, descricao, urgencia, user_om, foto_final]
                         ok, msg = manager.add_solicitacao(data_list)
 
                     if ok:
@@ -552,7 +589,7 @@ else:
             st.rerun()
 
     elif st.session_state.page == "aprovacoes":
-        st.markdown("## 📊 Painel de Aprovacoes")
+        st.markdown("## 📊 Painel de Aprovações")
 
         if not manager or not manager.is_connected:
             st.error("Sistema offline.")
@@ -571,7 +608,6 @@ else:
                     st.info("Nenhuma demanda nesta fila.")
                     continue
 
-                header = data[0]
                 rows = data[1:]
 
                 for row in rows:
@@ -582,6 +618,7 @@ else:
                     row_tipo = row[5] if len(row) > 5 else ""
                     row_desc = row[6] if len(row) > 6 else ""
                     row_urgencia = row[7] if len(row) > 7 else ""
+                    row_foto = row[10] if len(row) > 10 else ""
                     row_parecer = row[11] if len(row) > 11 else ""
                     row_registro = row[12] if len(row) > 12 else ""
 
@@ -590,8 +627,10 @@ else:
                     with st.expander(f"**{row_id}** | {row_tipo} | {row_local}", expanded=False):
                         st.markdown(f"**Status:** {status_html}", unsafe_allow_html=True)
                         st.markdown(f"**Solicitante:** {row_solicitante}")
-                        st.markdown(f"**Urgencia:** {row_urgencia}")
-                        st.markdown(f"**Descricao:** {row_desc}")
+                        st.markdown(f"**Urgência:** {row_urgencia}")
+                        st.markdown(f"**Descrição:** {row_desc}")
+                        if row_foto:
+                            display_photos(row_foto)
 
                         if row_parecer:
                             st.markdown(f"**Parecer PO:** {row_parecer}")
@@ -599,19 +638,19 @@ else:
                         btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
 
                         with btn_col1:
-                            if st.button("⬆️", key=f"up_{tab_key}_{row_id}", help="Subir prioridade"):
+                            if st.button("⬆️", key=f"up_aprov_{tab_key}_{row_id}", help="Subir prioridade"):
                                 manager.update_aproved_priority(tab_key, row_id, -1)
                                 st.rerun()
                         with btn_col2:
-                            if st.button("⬇️", key=f"down_{tab_key}_{row_id}", help="Descer prioridade"):
+                            if st.button("⬇️", key=f"down_aprov_{tab_key}_{row_id}", help="Descer prioridade"):
                                 manager.update_aproved_priority(tab_key, row_id, 1)
                                 st.rerun()
                         with btn_col3:
-                            if st.button("🗑️", key=f"delap_{tab_key}_{row_id}", help="Remover"):
+                            if st.button("🗑️", key=f"del_aprov_{tab_key}_{row_id}", help="Remover"):
                                 manager.delete_item_from_aproved(tab_key, row_id)
                                 st.rerun()
                         with btn_col4:
-                            if st.button("📋", key=f"detap_{tab_key}_{row_id}", help="Detalhar"):
+                            if st.button("📋", key=f"det_aprov_{tab_key}_{row_id}", help="Detalhar"):
                                 st.session_state[f"show_det_{row_id}"] = True
 
                         if st.session_state.get(f"show_det_{row_id}", False):
@@ -620,10 +659,8 @@ else:
                         if user_funcao == FUNCAO_SECAO_SERVICOS_GERAIS and row_status == STATUS_ANALISE_SERVICOS_GERAIS:
                             exec_col, nao_col = st.columns(2)
                             with exec_col:
-                                if st.button("🔨 Executar", key=f"execap_{row_id}", use_container_width=True):
-                                    ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(
-                                        row_id, TAG_PO_EXECUTA, user_nome
-                                    )
+                                if st.button("🔨 Executar", key=f"exec_aprov_{row_id}", use_container_width=True):
+                                    ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(row_id, TAG_PO_EXECUTA, user_nome)
                                     if ok:
                                         st.success(msg)
                                         time.sleep(0.5)
@@ -631,10 +668,8 @@ else:
                                     else:
                                         st.error(msg)
                             with nao_col:
-                                if st.button("🚫 Nao Executar", key=f"naoap_{row_id}", use_container_width=True):
-                                    ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(
-                                        row_id, TAG_PO_NAO_EXECUTA, user_nome
-                                    )
+                                if st.button("🚫 Não Executar", key=f"nao_aprov_{row_id}", use_container_width=True):
+                                    ok, msg = manager.parecer_servicos_gerais_para_fisc_adm(row_id, TAG_PO_NAO_EXECUTA, user_nome)
                                     if ok:
                                         st.success(msg)
                                         time.sleep(0.5)
@@ -643,7 +678,7 @@ else:
                                         st.error(msg)
 
                         if user_funcao in (FUNCAO_FISC_ADM_BASE, FUNCAO_SECAO_SERVICOS_GERAIS) and row_status == STATUS_EM_EXECUCAO_PO:
-                            if st.button("✅ Concluir Servico", key=f"conclap_{row_id}", use_container_width=True):
+                            if st.button("✅ Concluir Serviço", key=f"concl_aprov_{row_id}", use_container_width=True):
                                 ok, msg = manager.concluir_servico_po(row_id, user_nome)
                                 if ok:
                                     st.success(msg)
@@ -660,20 +695,20 @@ else:
                                     st.text(line.strip())
 
         st.markdown("---")
-        st.markdown("### 📈 Fluxograma de Aprovacao (Simplificado)")
+        st.markdown("### 📈 Fluxograma de Aprovação (Simplificado)")
         flow_om = CONFIG_OMS.get(user_om, {}).get("flow", [])
         if flow_om:
             flow_html = " → ".join([f"**{step}**" for step in flow_om])
             st.markdown(f"🔄 {flow_html}")
         else:
-            st.info("Fluxo nao configurado para sua OM.")
+            st.info("Fluxo não configurado para sua OM.")
 
     elif st.session_state.page == "usuarios":
         if not is_admin:
             st.error("Acesso restrito a Administradores da OM.")
             st.stop()
 
-        st.markdown("## 👥 Gerenciar Usuarios")
+        st.markdown("## 👥 Gerenciar Usuários")
 
         if not manager or not manager.is_connected:
             st.error("Sistema offline.")
@@ -683,7 +718,7 @@ else:
         om_users = [u for u in users if u.get("OM") == user_om]
 
         if not om_users:
-            st.info("Nenhum usuario cadastrado para sua OM.")
+            st.info("Nenhum usuário cadastrado para sua OM.")
         else:
             for u in om_users:
                 u_nome = u.get("Nome", "")
@@ -707,20 +742,20 @@ else:
                                 st.error(msg)
 
         st.markdown("---")
-        st.markdown("### ➕ Cadastrar Novo Usuario")
+        st.markdown("### ➕ Cadastrar Novo Usuário")
 
         om_options_admin = ["Selecione a OM..."] + list(CONFIG_OMS.keys())
         new_om = st.selectbox("OM", om_options_admin, key="admin_cad_om")
 
-        new_funcao_options = ["Selecione a Funcao..."]
+        new_funcao_options = ["Selecione a Função..."]
         if new_om and new_om != "Selecione a OM..." and new_om in CONFIG_OMS:
-            new_funcao_options = CONFIG_OMS[new_om].get("roles", ["Selecione a Funcao..."])
+            new_funcao_options = CONFIG_OMS[new_om].get("roles", ["Selecione a Função..."])
 
-        new_funcao = st.selectbox("Funcao", new_funcao_options, key="admin_cad_funcao")
+        new_funcao = st.selectbox("Função", new_funcao_options, key="admin_cad_funcao")
 
         with st.form("admin_cadastro_form"):
             new_nome = st.text_input("Nome completo")
-            new_ident = st.text_input("Identidade (matricula)")
+            new_ident = st.text_input("Identidade (matrícula)")
             new_senha = st.text_input("Senha", type="password")
 
             if st.form_submit_button("Cadastrar", use_container_width=True):
@@ -728,14 +763,12 @@ else:
                     st.error("Preencha todos os campos.")
                 elif new_om == "Selecione a OM...":
                     st.error("Selecione uma OM.")
-                elif new_funcao == "Selecione a Funcao...":
-                    st.error("Selecione uma funcao.")
+                elif new_funcao == "Selecione a Função...":
+                    st.error("Selecione uma função.")
                 elif len(new_senha) < 6:
                     st.error("A senha deve ter pelo menos 6 caracteres.")
                 else:
-                    om_resolved = resolve_om(new_om)
-                    funcao_resolved = resolve_role(new_funcao)
-                    ok, msg = manager.add_user(om_resolved, new_nome, new_ident, funcao_resolved, new_senha)
+                    ok, msg = manager.add_user(resolve_om(new_om), new_nome, new_ident, resolve_role(new_funcao), new_senha)
                     if ok:
                         st.success(msg)
                         time.sleep(0.5)
@@ -767,8 +800,8 @@ def show_detalhamento(demanda_id):
         df_data = []
         for item in itens:
             df_data.append({
-                "Codigo": item.get("codigo", ""),
-                "Descricao": item.get("descricao", ""),
+                "Código": item.get("codigo", ""),
+                "Descrição": item.get("descricao", ""),
                 "Unidade": item.get("unidade", ""),
                 "Qtd": item.get("quantidade", 0),
                 "Unit. (R$)": item.get("preco_unitario", 0),
